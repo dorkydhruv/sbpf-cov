@@ -1,4 +1,6 @@
 pub mod byteparser;
+pub mod coverage;
+
 use std::io;
 
 use bpf_linker::LinkerError;

@@ -1047,18 +1047,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sbpf-ir"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e4eee305a21213857a82b05132a0b2d3d5cf7d055d624ac0acba56779dab00b"
-dependencies = [
- "either",
- "sbpf-common",
- "smallvec",
-]
-
-[[package]]
-name = "sbpf-linker"
+name = "sbpf-cov"
 version = "0.1.9"
 dependencies = [
  "anyhow",
@@ -1071,12 +1060,25 @@ dependencies = [
  "rustc-build-sysroot",
  "sbpf-assembler",
  "sbpf-common",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
  "tracing-tree",
  "which",
+]
+
+[[package]]
+name = "sbpf-ir"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e4eee305a21213857a82b05132a0b2d3d5cf7d055d624ac0acba56779dab00b"
+dependencies = [
+ "either",
+ "sbpf-common",
+ "smallvec",
 ]
 
 [[package]]

@@ -19,7 +19,7 @@ use tracing::{Level, info};
 use tracing_subscriber::{EnvFilter, fmt::MakeWriter, prelude::*};
 use tracing_tree::HierarchicalLayer;
 
-use sbpf_linker::{
+use sbpf_cov::{
     OptimizationConfig, SbpfArch, SbpfLinkerError, link_program,
 };
 
@@ -504,7 +504,10 @@ fn main() -> anyhow::Result<()> {
     } else {
         OptimizationConfig::disabled()
     };
-    let bytecode = link_program(&program, sbpf_optimization, arch.0)?;
+    let mut bytecode = link_program(&program, sbpf_optimization, arch.0)?;
+    if bytecode.len() > 7 {
+        bytecode[7] = 0;
+    }
 
     let src_name = std::path::Path::new(&output)
         .file_stem()

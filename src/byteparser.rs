@@ -54,7 +54,9 @@ pub fn parse_bytecode(
         section
             .name()
             .map(|name| {
-                name.starts_with(".rodata") || name.starts_with(".data.rel.ro")
+                name.starts_with(".rodata")
+                    || name.starts_with(".data.rel.ro")
+                    || name.starts_with("__llvm_prf_cnts")
             })
             .unwrap_or(false)
     }) {
