@@ -1,2 +1,8 @@
 .DS_Store
 /target
+*.profraw
+*.profdata
+*.json
+*.so
+/tmp
+*target

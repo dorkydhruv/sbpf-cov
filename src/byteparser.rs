@@ -1,6 +1,6 @@
 use crate::SbpfLinkerError;
 
-use sbpf_assembler::ast::{AST, build_program};
+use sbpf_assembler::ast::{build_program, AST};
 use sbpf_assembler::astnode::{ASTNode, GlobalDecl, Label, ROData};
 use sbpf_assembler::section::DebugSection;
 use sbpf_assembler::{OptimizationConfig, ProgramLayout, SbpfArch, Token};
@@ -105,24 +105,26 @@ pub fn parse_bytecode(
                 name: symbol.name().unwrap().to_owned(),
                 bytes,
             });
-        } else if let Some(section_index) = symbol.section_index()
-            && let Some(section_base) = text_section_bases.get(&section_index)
-        {
-            let sym_name = symbol.name().unwrap_or("");
-            if sym_name.is_empty() {
-                continue;
-            }
-            ast.nodes.push(ASTNode::Label {
-                label: Label { name: sym_name.to_owned(), span: 0..1 },
-                offset: section_base + symbol.address(),
-            });
-            if sym_name == "entrypoint" {
-                ast.nodes.push(ASTNode::GlobalDecl {
-                    global_decl: GlobalDecl {
-                        entry_label: sym_name.to_owned(),
-                        span: 0..1,
-                    },
+        } else if let Some(section_index) = symbol.section_index() {
+            if let Some(section_base) = text_section_bases.get(&section_index)
+            {
+                let sym_name = symbol.name().unwrap_or("");
+                if sym_name.is_empty() {
+                    continue;
+                }
+                ast.nodes.push(ASTNode::Label {
+                    label: Label { name: sym_name.to_owned(), span: 0..1 },
+                    offset: section_base + symbol.address(),
                 });
+                if sym_name == "entrypoint" || sym_name.contains("entrypoint")
+                {
+                    ast.nodes.push(ASTNode::GlobalDecl {
+                        global_decl: GlobalDecl {
+                            entry_label: sym_name.to_owned(),
+                            span: 0..1,
+                        },
+                    });
+                }
             }
         }
     }
@@ -353,15 +355,15 @@ pub fn parse_bytecode(
                     }
                 }
             }
-        } else if let Ok(section_name) = section.name()
-            && section_name.starts_with(".debug_")
-        {
-            // So we have debug sections, keep them around.
-            debug_sections.push(DebugSection::new(
-                section_name,
-                0, // will compute during emitting
-                section.data().unwrap().to_vec(),
-            ));
+        } else if let Ok(section_name) = section.name() {
+            if section_name.starts_with(".debug_") {
+                // So we have debug sections, keep them around.
+                debug_sections.push(DebugSection::new(
+                    section_name,
+                    0, // will compute during emitting
+                    section.data().unwrap().to_vec(),
+                ));
+            }
         }
     }
 

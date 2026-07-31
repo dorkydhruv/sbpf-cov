@@ -1,0 +1,18 @@
+[package]
+name = "sbpf-cov-interposer"
+version = "0.1.0"
+edition = "2021"
+description = "Dynamic runtime interposer shim for transparent SBPF VM coverage tracking"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ctor = "0.2"
+lazy_static = "1.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sbpf-cov = { path = ".." }
+
+[dev-dependencies]
+tempfile = "3.10"

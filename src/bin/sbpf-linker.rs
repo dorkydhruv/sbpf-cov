@@ -10,18 +10,16 @@ use bpf_linker::{
     Cpu, Linker, LinkerInput, LinkerOptions, OptLevel, OutputType,
 };
 use clap::{
-    Parser,
     builder::{PathBufValueParser, TypedValueParser as _},
     error::ErrorKind,
+    Parser,
 };
 use thiserror::Error;
-use tracing::{Level, info};
-use tracing_subscriber::{EnvFilter, fmt::MakeWriter, prelude::*};
+use tracing::{info, Level};
+use tracing_subscriber::{fmt::MakeWriter, prelude::*, EnvFilter};
 use tracing_tree::HierarchicalLayer;
 
-use sbpf_cov::{
-    OptimizationConfig, SbpfArch, SbpfLinkerError, link_program,
-};
+use sbpf_cov::{link_program, OptimizationConfig, SbpfArch, SbpfLinkerError};
 
 #[derive(Debug, Error)]
 enum CliError {
@@ -379,7 +377,11 @@ where
 
 fn main() -> anyhow::Result<()> {
     let args = env::args().map(|arg| {
-        if arg == "-flavor" { "--flavor".to_string() } else { arg }
+        if arg == "-flavor" {
+            "--flavor".to_string()
+        } else {
+            arg
+        }
     });
 
     let cli = process_cli_options(args)?;
@@ -585,11 +587,9 @@ mod tests {
         assert!(matches!(arch.0, SbpfArch::V3));
 
         assert_eq!(cpu_features.to_bytes(), b"+allows-misaligned-mem-access");
-        assert!(
-            llvm_args
-                .iter()
-                .any(|a| a.to_str().unwrap() == "-bpf-stack-size=4096")
-        );
+        assert!(llvm_args
+            .iter()
+            .any(|a| a.to_str().unwrap() == "-bpf-stack-size=4096"));
     }
 
     #[test]

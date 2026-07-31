@@ -1,0 +1,12 @@
+[package]
+name = "c-example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+solana_rbpf = "0.8.5"
+anyhow = { workspace = true }
+sbpf-cov = { path = "../.." }
+
+[dev-dependencies]
+tempfile = "3.8"

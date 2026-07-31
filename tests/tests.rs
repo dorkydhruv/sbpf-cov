@@ -12,17 +12,17 @@ use std::{
 use either::Either;
 use object::{File, Object as _, ObjectSection as _};
 use sbpf_assembler::{
-    OptimizationConfig, SbpfArch,
     astnode::{ASTNode, ROData},
     header::ProgramHeader,
     parser::Token,
+    OptimizationConfig, SbpfArch,
 };
 use sbpf_common::{
     inst_param::Number,
     instruction::{AsmFormat, Instruction},
     opcode::Opcode,
 };
-use sbpf_linker::byteparser::parse_bytecode;
+use sbpf_cov::byteparser::parse_bytecode;
 
 const NO_TESTS_FILTER: &str = "__no_tests_match_this_sbpf_arch__";
 
@@ -313,39 +313,51 @@ fn render_instruction<A: TestArch>(
     code_labels: &HashMap<i64, String>,
     syscall_labels: &HashMap<u64, String>,
 ) -> anyhow::Result<Vec<String>> {
-    if instruction.opcode == Opcode::Call
-        && let Some(label) = syscall_labels.get(&offset)
-    {
-        return Ok(vec![format!("call {label}")]);
+    if instruction.opcode == Opcode::Call {
+        if let Some(label) = syscall_labels.get(&offset) {
+            return Ok(vec![format!("call {label}")]);
+        }
     }
 
-    if instruction.opcode == Opcode::Call
-        && let Some(Either::Right(Number::Int(value) | Number::Addr(value))) =
+    if instruction.opcode == Opcode::Call {
+        if let Some(Either::Right(Number::Int(value) | Number::Addr(value))) =
             &instruction.imm
-    {
-        let target = offset as i64 + 8 + value * 8;
-        if let Some(label) = code_labels.get(&target) {
-            return Ok(vec![
-                instruction.to_asm(AsmFormat::Default)?,
-                format!("call {label}"),
-            ]);
+        {
+            let target = offset as i64 + 8 + value * 8;
+            if let Some(label) = code_labels.get(&target) {
+                return Ok(vec![
+                    instruction.to_asm(AsmFormat::Default)?,
+                    format!("call {label}"),
+                ]);
+            }
         }
     }
 
-    if instruction.opcode == Opcode::Lddw
-        && let Some(Either::Right(number)) = &instruction.imm
-        && let Number::Int(value) | Number::Addr(value) = number
-        && let Some(offset) =
-            rodata_offset_for_lddw::<A>(*value as u64, rodata_base, rodata_len)
-    {
-        let dst = instruction.dst.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("lddw is missing a destination register")
-        })?;
-        let mut rendered = vec![format!("lddw r{}, rodata[{offset}]", dst.n)];
-        if let Some(label) = rodata_labels.get(&offset) {
-            rendered.push(format!("lddw r{}, {}", dst.n, label));
+    if instruction.opcode == Opcode::Lddw {
+        if let Some(Either::Right(number)) = &instruction.imm {
+            let value_opt = match number {
+                Number::Int(value) | Number::Addr(value) => Some(*value),
+            };
+            if let Some(value) = value_opt {
+                if let Some(offset) = rodata_offset_for_lddw::<A>(
+                    value as u64,
+                    rodata_base,
+                    rodata_len,
+                ) {
+                    let dst = instruction.dst.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "lddw is missing a destination register"
+                        )
+                    })?;
+                    let mut rendered =
+                        vec![format!("lddw r{}, rodata[{offset}]", dst.n)];
+                    if let Some(label) = rodata_labels.get(&offset) {
+                        rendered.push(format!("lddw r{}, {}", dst.n, label));
+                    }
+                    return Ok(rendered);
+                }
+            }
         }
-        return Ok(rendered);
     }
 
     Ok(vec![instruction.to_asm(AsmFormat::Default)?])
@@ -379,10 +391,10 @@ fn collect_syscall_labels<A: TestArch>(
             A::decode_instruction(&data[offset..]).map_err(|err| {
                 anyhow::anyhow!("failed to decode .text at {offset:#x}: {err}")
             })?;
-        if instruction.opcode == Opcode::Call
-            && let Some(Either::Left(identifier)) = instruction.imm
-        {
-            labels.insert(offset as u64, identifier);
+        if instruction.opcode == Opcode::Call {
+            if let Some(Either::Left(identifier)) = instruction.imm {
+                labels.insert(offset as u64, identifier);
+            }
         }
         offset += if instruction.opcode == Opcode::Lddw { 16 } else { 8 };
     }

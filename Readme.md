@@ -1,36 +1,117 @@
-<h1 align="center">
-  SBPF Linker
-</h1>
-<p align="center">
-  An upstream BPF linker to relink upstream BPF binaries into an SBPF V0 compatible binary format.
-</p>
+# `sbpf-cov` 🎯
+> Zero-Runtime LLVM Source Coverage Toolchain for Solana SBPF Programs
 
-### Install
+`sbpf-cov` provides native, zero-runtime-overhead LLVM source coverage (`llvm-cov` / `.profraw` / HTML reports) for Solana SBPF (Solana Bytecode Format) smart contracts.
 
-```sh
-cargo install sbpf-linker
+---
+
+## 🌟 Key Features
+
+- **Zero-Runtime Overhead**: Mutates LLVM execution counters directly in `.rodata` during SBPF VM execution with zero additional syscalls.
+- **Native Linker Support**: `sbpf-linker` automatically merges `__llvm_prf_cnts` into SBPF `.rodata` and patches ELF OSABI (`ELFOSABI_NONE`).
+- **Dynamic Interposer (`sbpf-cov-interposer`)**: Transparently hooks test execution under **LiteSVM**, **Mollusk**, **`solana-program-test`**, and standard `cargo test` / `cargo test-sbf`.
+- **Standard LLVM Formats**: Converts raw counter dumps to Version 10 `.profraw` binary profiles, compatible with `llvm-profdata` and `llvm-cov`.
+- **Comprehensive Reporting**: Supports terminal summaries, interactive line-by-line HTML reports, and LCOV export for **Codecov** and **GitHub Actions**.
+
+---
+
+## 🚀 Quickstart
+
+### 1. Installation
+
+Build `sbpf-cov` and `sbpf-linker` binaries:
+
+```bash
+cargo build --release
+export PATH="$PWD/target/release:$PATH"
 ```
 
-### LLVM Main: Early Feature Gate
+### 2. One-Command Coverage Suite (`sbpf-cov test`)
 
-Builds and installs sbpf-linker against a cached [`llvm/llvm-project`](https://github.com/llvm/llvm-project) `main` checkout with static LLVM linking. The install command reuses the cached LLVM checkout and build when available.
+Run your test suite with full coverage instrumentation and generate interactive HTML and LCOV reports:
 
-```sh
-cargo install-with-llvm-main
+```bash
+sbpf-cov test --html ./coverage_html --lcov ./lcov.info
 ```
 
-Update the cached LLVM checkout and rebuild LLVM separately when you want to move to the latest `main`.
+Open `./coverage_html/index.html` in your browser to view line-by-line covered vs missed branches!
 
-```sh
-cargo update-llvm-main
+---
+
+## 🛠️ CLI Subcommand Reference
+
+### `sbpf-cov fixup`
+Post-processes an instrumented SBPF ELF `.so` to embed coverage counters in `.rodata` and patch `ei_osabi` for `solana_rbpf` VM compatibility:
+
+```bash
+sbpf-cov fixup --input build/program.so --output build/program_vm.so
 ```
 
-### Generate a Program
+### `sbpf-cov convert`
+Converts `coverage_dump.json` exported by the VM test harness into an LLVM `.profraw` file:
 
-```sh
-cargo generate --git https://github.com/blueshift-gg/solana-upstream-bpf-template
+```bash
+sbpf-cov convert --dump coverage_dump.json --elf build/program.so --output default.profraw
 ```
 
-```sh
-cargo +nightly build-bpf
+### `sbpf-cov report`
+Merges `.profraw` into `.profdata` and generates coverage reports:
+
+```bash
+# Terminal summary
+sbpf-cov report --profraw default.profraw --elf build/program.so
+
+# Interactive HTML report
+sbpf-cov report --profraw default.profraw --elf build/program.so --html ./coverage_html
+
+# LCOV export (Codecov / CI)
+sbpf-cov report --profraw default.profraw --elf build/program.so --lcov ./lcov.info
 ```
+
+---
+
+## 📐 Architecture Overview
+
+```
+                      +-----------------------------+
+                      |   Rust SBPF Source Code     |
+                      +-----------------------------+
+                                     |
+                         solana-rustc -C instrument-coverage
+                                     v
+                      +-----------------------------+
+                      | Intermediate Object (.o)    |
+                      +-----------------------------+
+                                     |
+                         sbpf-linker (Native Merging)
+                                     v
+                      +-----------------------------+
+                      | Fixed SBPF ELF (.so)        |
+                      | (.rodata + __llvm_prf_cnts) |
+                      +-----------------------------+
+                                     |
+                       solana_rbpf VM Test Execution
+                   (interposer hooks .rodata & dumps json)
+                                     v
+                      +-----------------------------+
+                      |     coverage_dump.json      |
+                      +-----------------------------+
+                                     |
+                              sbpf-cov convert
+                                     v
+                      +-----------------------------+
+                      |       default.profraw       |
+                      +-----------------------------+
+                                     |
+                               sbpf-cov report
+                                     v
+               +-------------------------------------------+
+               | Terminal Summary | HTML View | LCOV File  |
+               +-------------------------------------------+
+```
+
+---
+
+## 📄 License
+
+MIT License. See [LICENSE](LICENSE) for details.

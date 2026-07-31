@@ -1,0 +1,20 @@
+[package]
+name = "rust-example"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+test = false
+
+[dependencies]
+
+[dev-dependencies]
+sbpf-cov = { path = "../.." }
+solana_rbpf = "0.8.5"
+
+[profile.dev]
+panic = "abort"
+
+[profile.test]
+panic = "abort"
