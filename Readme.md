@@ -1,17 +1,18 @@
 # `sbpf-cov` 🎯
 > Zero-Runtime LLVM Source Coverage Toolchain for Solana SBPF Programs
 
-`sbpf-cov` provides native, zero-runtime-overhead LLVM source coverage (`llvm-cov` / `.profraw` / HTML reports) for Solana SBPF (Solana Bytecode Format) smart contracts.
+`sbpf-cov` provides native, zero-runtime-overhead LLVM source coverage (`llvm-cov` / `.profraw` / HTML reports) for Solana SBPF (Solana Bytecode Format) smart contracts written in **Rust**, **C**, or **Javalana / JavaCPP**.
 
 ---
 
 ## 🌟 Key Features
 
-- **Zero-Runtime Overhead**: Mutates LLVM execution counters directly in `.rodata` during SBPF VM execution with zero additional syscalls.
-- **Native Linker Support**: `sbpf-linker` automatically merges `__llvm_prf_cnts` into SBPF `.rodata` and patches ELF OSABI (`ELFOSABI_NONE`).
-- **Dynamic Interposer (`sbpf-cov-interposer`)**: Transparently hooks test execution under **LiteSVM**, **Mollusk**, **`solana-program-test`**, and standard `cargo test` / `cargo test-sbf`.
-- **Standard LLVM Formats**: Converts raw counter dumps to Version 10 `.profraw` binary profiles, compatible with `llvm-profdata` and `llvm-cov`.
-- **Comprehensive Reporting**: Supports terminal summaries, interactive line-by-line HTML reports, and LCOV export for **Codecov** and **GitHub Actions**.
+- **Zero-Runtime Overhead**: Mutates LLVM execution counters directly in `.rodata` during SBPF VM execution with zero additional syscalls or runtime libraries.
+- **Native Linker Integration**: `sbpf-linker` merges `__llvm_prf_cnts` into SBPF `.rodata` and automatically patches ELF OSABI flags (`ELFOSABI_NONE`).
+- **One-Command CLI Experience**: `cargo sbpf-cov` runs ELF fixup, test execution under dynamic interposer, dump conversion, and interactive HTML report rendering in a single command.
+- **DWARF Line-Mapping Engine**: Built-in `gimli`-based DWARF `.debug_line` parser extracts exact source line tables for Rust SBPF programs.
+- **Multi-Language Examples**: Includes complete, working end-to-end coverage examples for **C**, **Rust**, and **Javalana / JavaCPP** Solana programs.
+- **Standard LLVM Formats**: Converts raw counter dumps to Version 10 `.profraw` binary profiles, compatible with `llvm-profdata`, `llvm-cov`, and LCOV / Codecov.
 
 ---
 
@@ -26,46 +27,36 @@ cargo build --release
 export PATH="$PWD/target/release:$PATH"
 ```
 
-### 2. One-Command Coverage Suite (`sbpf-cov test`)
+### 2. One-Command Coverage (`cargo sbpf-cov`)
 
 Run your test suite with full coverage instrumentation and generate interactive HTML and LCOV reports:
 
 ```bash
-sbpf-cov test --html ./coverage_html --lcov ./lcov.info
+cargo sbpf-cov \
+    --raw-elf target/prog_raw.so \
+    --fixed-elf target/prog.so \
+    --elf target/program.o \
+    --html target/coverage_html
 ```
 
-Open `./coverage_html/index.html` in your browser to view line-by-line covered vs missed branches!
+Open `./target/coverage_html/index.html` in your browser to view line-by-line covered vs missed lines and branches!
 
 ---
 
-## 🛠️ CLI Subcommand Reference
+## 📁 Examples & Reference Pipelines
 
-### `sbpf-cov fixup`
-Post-processes an instrumented SBPF ELF `.so` to embed coverage counters in `.rodata` and patch `ei_osabi` for `solana_rbpf` VM compatibility:
+| Example Directory | Language | Pipeline Script | Description |
+| :--- | :--- | :--- | :--- |
+| [`examples/c-example`](examples/c-example) | **C** | [`build.sh`](examples/c-example/build.sh) | SBPF program compiled with Upstream Clang (`-fprofile-instr-generate -fcoverage-mapping`). |
+| [`examples/rust-example`](examples/rust-example) | **Rust** | [`build.sh`](examples/rust-example/build.sh) | Native Rust SBPF program compiled with upstream `rustc` (`-C instrument-coverage`). |
+| [`examples/java-example`](examples/java-example) | **Javalana / JavaCPP** | [`build.sh`](examples/java-example/build.sh) | Java smart contract compiled to SBPF bitcode via JavaCPP / Javalana bridge. |
 
-```bash
-sbpf-cov fixup --input build/program.so --output build/program_vm.so
-```
-
-### `sbpf-cov convert`
-Converts `coverage_dump.json` exported by the VM test harness into an LLVM `.profraw` file:
+To run any example and generate its HTML coverage report:
 
 ```bash
-sbpf-cov convert --dump coverage_dump.json --elf build/program.so --output default.profraw
-```
-
-### `sbpf-cov report`
-Merges `.profraw` into `.profdata` and generates coverage reports:
-
-```bash
-# Terminal summary
-sbpf-cov report --profraw default.profraw --elf build/program.so
-
-# Interactive HTML report
-sbpf-cov report --profraw default.profraw --elf build/program.so --html ./coverage_html
-
-# LCOV export (Codecov / CI)
-sbpf-cov report --profraw default.profraw --elf build/program.so --lcov ./lcov.info
+./examples/c-example/build.sh
+./examples/rust-example/build.sh
+./examples/java-example/build.sh
 ```
 
 ---
@@ -73,41 +64,31 @@ sbpf-cov report --profraw default.profraw --elf build/program.so --lcov ./lcov.i
 ## 📐 Architecture Overview
 
 ```
-                      +-----------------------------+
-                      |   Rust SBPF Source Code     |
-                      +-----------------------------+
-                                     |
-                         solana-rustc -C instrument-coverage
-                                     v
-                      +-----------------------------+
-                      | Intermediate Object (.o)    |
-                      +-----------------------------+
-                                     |
-                         sbpf-linker (Native Merging)
-                                     v
-                      +-----------------------------+
-                      | Fixed SBPF ELF (.so)        |
-                      | (.rodata + __llvm_prf_cnts) |
-                      +-----------------------------+
-                                     |
-                       solana_rbpf VM Test Execution
-                   (interposer hooks .rodata & dumps json)
-                                     v
-                      +-----------------------------+
-                      |     coverage_dump.json      |
-                      +-----------------------------+
-                                     |
-                              sbpf-cov convert
-                                     v
-                      +-----------------------------+
-                      |       default.profraw       |
-                      +-----------------------------+
-                                     |
-                               sbpf-cov report
-                                     v
-               +-------------------------------------------+
-               | Terminal Summary | HTML View | LCOV File  |
-               +-------------------------------------------+
+                      +------------------------------------------+
+                      | Rust / C / Javalana SBPF Source Code     |
+                      +------------------------------------------+
+                                           |
+                               Clang / Rustc (-fprofile-instr-generate)
+                                           v
+                      +------------------------------------------+
+                      | Intermediate Object (.o) & Bitcode (.bc) |
+                      +------------------------------------------+
+                                           |
+                               sbpf-linker (Native Merging)
+                                           v
+                      +------------------------------------------+
+                      | Raw SBPF ELF (*_raw.so)                  |
+                      +------------------------------------------+
+                                           |
+                               sbpf-cov (One-Shot Pipeline)
+                     [1/4] Fixup (.rodata + __llvm_prf_cnts)
+                     [2/4] solana_rbpf Interposed Test Execution
+                     [3/4] Synthesize Version 10 .profraw Profile
+                     [4/4] Merge & Render HTML / LCOV Reports
+                                           v
+                +------------------------------------------------------+
+                | Terminal Summary  |  Interactive HTML  |  LCOV File  |
+                +------------------------------------------------------+
 ```
 
 ---
