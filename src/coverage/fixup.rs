@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
@@ -177,6 +176,7 @@ pub fn fixup_sbpf_elf_for_vm(
         size: usize,
     }
 
+    let mut data_info: Option<SecInfo> = None;
     let mut rodata_info: Option<SecInfo> = None;
     let mut cnts_info: Option<SecInfo> = None;
 
@@ -185,9 +185,10 @@ pub fn fixup_sbpf_elf_for_vm(
         let sh_type = u32::from_le_bytes(data[off + 4..off + 8].try_into()?);
         if sh_type != 0 {
             let name = get_name(i, &data);
-            let size = u64::from_le_bytes(data[off + 32..off + 40].try_into()?)
-                as usize;
-            if name == ".rodata" {
+            let size = u64::from_le_bytes(data[off + 32..off + 40].try_into()?) as usize;
+            if name == ".data" {
+                data_info = Some(SecInfo { hdr_off: off, size });
+            } else if name == ".rodata" {
                 rodata_info = Some(SecInfo { hdr_off: off, size });
             } else if name == "__llvm_prf_cnts" || name == ".llvm_prf_cnts" {
                 cnts_info = Some(SecInfo { hdr_off: off, size });
@@ -196,34 +197,17 @@ pub fn fixup_sbpf_elf_for_vm(
     }
 
     let (counter_offset_in_rodata, num_counters) =
-        if let (Some(rodata), Some(cnts)) = (rodata_info, cnts_info) {
-            let counter_offset = rodata.size;
-            let new_rodata_size = rodata.size + cnts.size;
-            data[rodata.hdr_off + 32..rodata.hdr_off + 40]
-                .copy_from_slice(&(new_rodata_size as u64).to_le_bytes());
+        if let (Some(target_sec), Some(cnts)) = (data_info.or(rodata_info), cnts_info) {
+            let counter_offset = target_sec.size;
+            let new_sec_size = target_sec.size + cnts.size;
+            data[target_sec.hdr_off + 32..target_sec.hdr_off + 40]
+                .copy_from_slice(&(new_sec_size as u64).to_le_bytes());
 
-            let to_null: HashSet<&str> = [".bss"].into_iter().collect();
+            // Set SHF_WRITE (0x1) flag on section header flags
+            let flags = u64::from_le_bytes(data[target_sec.hdr_off + 8..target_sec.hdr_off + 16].try_into()?);
+            data[target_sec.hdr_off + 8..target_sec.hdr_off + 16]
+                .copy_from_slice(&(flags | 0x1).to_le_bytes());
 
-            for i in 0..e_shnum {
-                let off = e_shoff + i * e_shentsize;
-                let sh_type =
-                    u32::from_le_bytes(data[off + 4..off + 8].try_into()?);
-                if sh_type != 0 {
-                    let name = get_name(i, &data);
-                    if to_null.contains(name.as_str()) {
-                        data[off..off + 4]
-                            .copy_from_slice(&0u32.to_le_bytes());
-                        data[off + 4..off + 8]
-                            .copy_from_slice(&0u32.to_le_bytes());
-                        data[off + 8..off + 16]
-                            .copy_from_slice(&0u64.to_le_bytes());
-                        data[off + 16..off + 24]
-                            .copy_from_slice(&0u64.to_le_bytes());
-                        data[off + 32..off + 40]
-                            .copy_from_slice(&0u64.to_le_bytes());
-                    }
-                }
-            }
             (counter_offset, cnts.size / 8)
         } else {
             (0, 0)

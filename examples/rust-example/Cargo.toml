@@ -13,8 +13,4 @@ test = false
 sbpf-cov = { path = "../.." }
 solana_rbpf = "0.8.5"
 
-[profile.dev]
-panic = "abort"
 
-[profile.test]
-panic = "abort"

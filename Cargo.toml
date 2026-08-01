@@ -77,8 +77,3 @@ edition = "2021"
 [features]
 default = ["bpf-linker/default"]
 
-[profile.dev]
-panic = "abort"
-
-[profile.test]
-panic = "abort"
