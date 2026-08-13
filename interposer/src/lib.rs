@@ -35,6 +35,11 @@ fn on_interposer_load() {
 
 #[dtor]
 fn on_interposer_exit() {
+    if let Ok(guard) = REGISTERED_PROGRAMS.lock() {
+        if guard.is_empty() {
+            return;
+        }
+    }
     eprintln!(
         "[sbpf-cov-interposer] Process exiting. Flushing coverage dump..."
     );
@@ -46,6 +51,10 @@ pub fn flush_coverage_dump() {
         Ok(guard) => guard,
         Err(_) => return,
     };
+
+    if progs.is_empty() {
+        return;
+    }
 
     let dump_path = match OUTPUT_PATH.lock() {
         Ok(guard) => guard.clone(),
@@ -78,10 +87,17 @@ pub fn flush_coverage_dump() {
             }
         }
 
-        dump.programs.insert(
-            name.clone(),
-            ProgramCoverageDump { program_name: name.clone(), counters },
-        );
+        let is_all_zero = counters.iter().all(|&c| c == 0);
+        if !counters.is_empty() && !is_all_zero {
+            dump.programs.insert(
+                name.clone(),
+                ProgramCoverageDump { program_name: name.clone(), counters },
+            );
+        }
+    }
+
+    if dump.programs.is_empty() {
+        return;
     }
 
     if let Ok(json_str) = serde_json::to_string_pretty(&dump) {

@@ -5,6 +5,13 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use object::{Object, ObjectSection};
 
+/// Returns true if the path looks like a Rust toolchain / compiler-internal file
+/// that should be excluded from coverage reports.
+fn is_toolchain_path(path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    s.contains(".rustup/") || s.contains("/rustc/") || s.contains("/library/")
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct FileCoverageSummary {
     pub file_path: PathBuf,
@@ -69,6 +76,11 @@ pub fn extract_dwarf_line_coverage(
                         path = canonical;
                     }
 
+                    // Skip Rust toolchain / compiler-internal source files
+                    if is_toolchain_path(&path) {
+                        continue;
+                    }
+
                     if let Some(line) = row.line() {
                         let line_u32 = line.get() as u32;
                         let summary = summaries
@@ -119,35 +131,47 @@ pub fn render_dwarf_coverage_report(
         return Ok(());
     }
 
-    println!("Filename                                                       Lines    Missed Lines     Cover");
-    println!("------------------------------------------------------------------------------------------------");
-    let mut total_lines = 0;
-    let mut total_covered = 0;
+    let overall_percent: f64;
 
-    for summary in summaries.values() {
-        total_lines += summary.total_executable_lines;
-        total_covered += summary.covered_lines;
+    if html_output_dir.is_none() {
+        println!("Filename                                                       Lines    Missed Lines     Cover");
+        println!("------------------------------------------------------------------------------------------------");
+        let mut total_lines = 0;
+        let mut total_covered = 0;
+
+        for summary in summaries.values() {
+            total_lines += summary.total_executable_lines;
+            total_covered += summary.covered_lines;
+            println!(
+                "{:<60} {:>8} {:>15} {:>8.2}%",
+                summary.file_path.display(),
+                summary.total_executable_lines,
+                summary.missed_lines,
+                summary.line_coverage_percent
+            );
+        }
+        println!("------------------------------------------------------------------------------------------------");
+        overall_percent = if total_lines > 0 {
+            (total_covered as f64 / total_lines as f64) * 100.0
+        } else {
+            0.0
+        };
         println!(
             "{:<60} {:>8} {:>15} {:>8.2}%",
-            summary.file_path.display(),
-            summary.total_executable_lines,
-            summary.missed_lines,
-            summary.line_coverage_percent
+            "TOTAL",
+            total_lines,
+            total_lines.saturating_sub(total_covered),
+            overall_percent
         );
-    }
-    println!("------------------------------------------------------------------------------------------------");
-    let overall_percent = if total_lines > 0 {
-        (total_covered as f64 / total_lines as f64) * 100.0
     } else {
-        0.0
-    };
-    println!(
-        "{:<60} {:>8} {:>15} {:>8.2}%",
-        "TOTAL",
-        total_lines,
-        total_lines.saturating_sub(total_covered),
-        overall_percent
-    );
+        let total_lines: usize = summaries.values().map(|s| s.total_executable_lines).sum();
+        let total_covered: usize = summaries.values().map(|s| s.covered_lines).sum();
+        overall_percent = if total_lines > 0 {
+            (total_covered as f64 / total_lines as f64) * 100.0
+        } else {
+            0.0
+        };
+    }
 
     if let Some(output_dir) = html_output_dir {
         fs::create_dir_all(output_dir)?;
@@ -210,10 +234,6 @@ pub fn render_dwarf_coverage_report(
 
         html.push_str("</body></html>");
         fs::write(&index_html_path, html)?;
-        println!(
-            "\n✅ Generated interactive HTML coverage report at: {}",
-            index_html_path.display()
-        );
     }
 
     Ok(())

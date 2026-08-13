@@ -23,7 +23,11 @@ fn decode_instruction_for_arch(
     if arch.is_v3() {
         Instruction::from_bytes_sbpf_v3(data)
     } else {
-        Instruction::from_bytes(data)
+        let mut bytes = data.to_vec();
+        if bytes[0] == 0xdb {
+            bytes[0] = 0x7b; // Map atomic STXD (0xdb) to standard STX (0x7b) for SBPF v0
+        }
+        Instruction::from_bytes(&bytes)
     }
 }
 

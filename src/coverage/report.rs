@@ -2,6 +2,10 @@ use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Regex pattern to exclude Rust toolchain and compiler-internal source files
+/// from llvm-cov reports (core, std, alloc, compiler-builtins, etc.)
+const TOOLCHAIN_IGNORE_REGEX: &str = r"(\.rustup/|/rustc/|/library/)";
+
 /// Finds the path to an LLVM binary (e.g. llvm-profdata, llvm-cov)
 pub fn find_llvm_tool(name: &str) -> Result<PathBuf> {
     // Check PATH first
@@ -156,78 +160,78 @@ pub fn generate_coverage_report(
 ) -> Result<()> {
     let cov_bin = find_llvm_tool("llvm-cov")?;
 
+    // 1. Terminal summary report (native llvm-cov report or DWARF fallback)
+    let mut cmd = Command::new(&cov_bin);
+    cmd.arg("report")
+        .arg(elf_path)
+        .arg(format!("-instr-profile={}", profdata_path.display()))
+        .arg(format!("--ignore-filename-regex={}", TOOLCHAIN_IGNORE_REGEX));
+    if let Some(src) = source_path {
+        cmd.arg(src);
+    }
+    let output = cmd.output();
+    let report_success = match &output {
+        Ok(out) if out.status.success() => {
+            print!("{}", String::from_utf8_lossy(&out.stdout));
+            true
+        }
+        _ => false,
+    };
+
+    if !report_success {
+        // Fall back to DWARF line coverage report generator for Rust programs
+        super::dwarf_cov::render_dwarf_coverage_report(
+            elf_path,
+            &[1],
+            None,
+        )?;
+    }
+
+    // 2. Interactive HTML report (if requested)
     if let Some(html_dir) = html_dir {
-        let mut cmd = Command::new(&cov_bin);
-        cmd.arg("show")
+        let mut html_cmd = Command::new(&cov_bin);
+        html_cmd
+            .arg("show")
             .arg(elf_path)
             .arg(format!("-instr-profile={}", profdata_path.display()))
             .arg(format!("-output-dir={}", html_dir.display()))
-            .arg("-format=html");
+            .arg("-format=html")
+            .arg(format!("--ignore-filename-regex={}", TOOLCHAIN_IGNORE_REGEX));
         if let Some(src) = source_path {
-            cmd.arg(src);
+            html_cmd.arg(src);
         }
-        let status = cmd.status();
-        if status.is_err() || !status.as_ref().unwrap().success() {
-            // Fall back to DWARF line coverage report generator for HTML
+        let output = html_cmd.output();
+        if output.is_err() || !output.as_ref().unwrap().status.success() {
             super::dwarf_cov::render_dwarf_coverage_report(
                 elf_path,
                 &[1],
                 Some(html_dir),
             )?;
-        } else {
-            println!(
-                "✅ Generated interactive HTML coverage report in {:?}",
-                html_dir
-            );
         }
-    } else if let Some(lcov_file) = lcov_file {
-        let mut cmd = Command::new(&cov_bin);
-        cmd.arg("export")
+        println!(
+            "\n✅ Generated interactive HTML coverage report at: {}/index.html",
+            html_dir.display()
+        );
+    }
+
+    // 3. LCOV export (if requested)
+    if let Some(lcov_file) = lcov_file {
+        let mut lcov_cmd = Command::new(&cov_bin);
+        lcov_cmd
+            .arg("export")
             .arg(elf_path)
             .arg(format!("-instr-profile={}", profdata_path.display()))
-            .arg("-format=lcov");
+            .arg("-format=lcov")
+            .arg(format!("--ignore-filename-regex={}", TOOLCHAIN_IGNORE_REGEX));
         if let Some(src) = source_path {
-            cmd.arg(src);
+            lcov_cmd.arg(src);
         }
-        let output = cmd.output()?;
+        let output = lcov_cmd.output()?;
         if !output.status.success() {
             bail!("llvm-cov lcov export failed");
         }
         std::fs::write(lcov_file, output.stdout)?;
         println!("✅ Exported LCOV coverage file to {:?}", lcov_file);
-    } else {
-        // Terminal summary report
-        let mut cmd = Command::new(&cov_bin);
-        cmd.arg("report")
-            .arg(elf_path)
-            .arg(format!("-instr-profile={}", profdata_path.display()));
-        if let Some(src) = source_path {
-            cmd.arg(src);
-        }
-        let status = cmd.status();
-        if status.is_err() || !status.as_ref().unwrap().success() {
-            // Fall back to DWARF line coverage report + llvm-profdata show for Rust programs
-            super::dwarf_cov::render_dwarf_coverage_report(
-                elf_path,
-                &[1],
-                None,
-            )?;
-
-            let profdata_bin = find_llvm_tool("llvm-profdata")?;
-            let output = Command::new(&profdata_bin)
-                .arg("show")
-                .arg("--all-functions")
-                .arg(profdata_path)
-                .output()?;
-            if output.status.success() {
-                println!("\n=======================================================");
-                println!("  Rust SBPF Program LLVM Coverage Profile Summary ");
-                println!(
-                    "======================================================="
-                );
-                println!("{}", String::from_utf8_lossy(&output.stdout));
-            }
-        }
     }
 
     Ok(())

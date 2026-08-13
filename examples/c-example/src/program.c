@@ -42,7 +42,8 @@ u64 entrypoint(u8* input) {
         return ERROR_INVALID_ARGUMENT;
     }
 
-    u8 opcode = input[0];
+    // Offset 16 = start of instruction data payload in Solana VM memory serialization format
+    u8 opcode = input[16];
     u64 amount = 500;
     u64 balance = 1000;
 
@@ -51,6 +52,10 @@ u64 entrypoint(u8* input) {
         return status;
     }
 
-    u64 checksum = compute_checksum(input, 10);
-    return checksum;
+    u64 checksum = compute_checksum(input + 16, 10);
+    if (checksum == 0) {
+        return ERROR_INVALID_ARGUMENT;
+    }
+
+    return SUCCESS; // 0 = SUCCESS in Solana SBPF VM
 }

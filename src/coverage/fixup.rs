@@ -26,11 +26,6 @@ pub fn fixup_sbpf_elf_for_vm(
         format!("Failed to read input ELF {:?}", input_path)
     })?;
 
-    // Fix ei_osabi (byte 7) -> 0 (ELFOSABI_NONE)
-    if data.len() > 7 {
-        data[7] = 0;
-    }
-
     if data.len() < 0x40 {
         fs::write(output_path, &data)?;
         return Ok(CoverageFixupMetadata {
@@ -106,20 +101,7 @@ pub fn fixup_sbpf_elf_for_vm(
         e_entry = 0x100000040;
         data[24..32].copy_from_slice(&e_entry.to_le_bytes());
     }
-    // Patch SBPF LDDW relocations (r1 = 0x0 ll -> r1 = 0x100001000 ll) for counter base address in writable rodata region
-    for i in 0..data.len().saturating_sub(24) {
-        if data[i] == 0x18
-            && data[i + 1] == 0x01
-            && data[i + 4..i + 8] == [0, 0, 0, 0]
-            && data[i + 12..i + 16] == [0, 0, 0, 0]
-        {
-            let next_op = data[i + 16];
-            if next_op == 0x79 || next_op == 0x7b {
-                data[i + 5] = 0x10; // Offset 0x1000 (4096 bytes after text)
-                data[i + 12] = 0x01; // Base 0x100000000
-            }
-        }
-    }
+
 
     if e_entry == 0 {
         let entry_vaddr: u64 = text_offset;
@@ -197,7 +179,7 @@ pub fn fixup_sbpf_elf_for_vm(
     }
 
     let (counter_offset_in_rodata, num_counters) =
-        if let (Some(target_sec), Some(cnts)) = (data_info.or(rodata_info), cnts_info) {
+        if let (Some(target_sec), Some(cnts)) = (data_info.or(rodata_info), cnts_info.as_ref()) {
             let counter_offset = target_sec.size;
             let new_sec_size = target_sec.size + cnts.size;
             data[target_sec.hdr_off + 32..target_sec.hdr_off + 40]
@@ -208,10 +190,36 @@ pub fn fixup_sbpf_elf_for_vm(
             data[target_sec.hdr_off + 8..target_sec.hdr_off + 16]
                 .copy_from_slice(&(flags | 0x1).to_le_bytes());
 
+            // Rename ".rodata" to ".data\0\0" in strtab if needed so Mollusk/Agave loader treats section as writable .data
+            let sh_name_idx = u32::from_le_bytes(data[target_sec.hdr_off..target_sec.hdr_off + 4].try_into()?) as usize;
+            if str_offset + sh_name_idx + 7 <= data.len() && &data[str_offset + sh_name_idx..str_offset + sh_name_idx + 7] == b".rodata" {
+                data[str_offset + sh_name_idx..str_offset + sh_name_idx + 7].copy_from_slice(b".data\0\0");
+            }
+
             (counter_offset, cnts.size / 8)
         } else {
             (0, 0)
         };
+
+    // Foolproof LDDW counter relocation re-routing for all destination registers (r1..r9) to writable SBPF Stack memory (0x20001f000+)
+    let mut counter_idx = 0u64;
+    for i in 0..data.len().saturating_sub(24) {
+        if data[i] == 0x18 && (data[i + 1] & 0x0f) >= 1 && (data[i + 1] & 0x0f) <= 9 {
+            let curr_upper = u32::from_le_bytes(data[i + 12..i + 16].try_into().unwrap_or([0; 4]));
+            if (curr_upper == 0 || curr_upper == 1) && i + 16 < data.len() {
+                let next_op = data[i + 16];
+                if next_op == 0x79 || next_op == 0x7b || next_op == 0xdb || next_op == 0x07 || next_op == 0x61 || next_op == 0xb7 || next_op == 0x15 || next_op == 0x55 || next_op == 0xbf || next_op == 0x0f {
+                    let target_vaddr: u64 = 0x20001f000 + (counter_idx * 8);
+                    let lower_32 = (target_vaddr & 0xffff_ffff) as u32;
+                    let upper_32 = (target_vaddr >> 32) as u32;
+
+                    data[i + 4..i + 8].copy_from_slice(&lower_32.to_le_bytes());
+                    data[i + 12..i + 16].copy_from_slice(&upper_32.to_le_bytes());
+                    counter_idx += 1;
+                }
+            }
+        }
+    }
 
     let mut running_offset = 0u64;
     for i in 0..e_shnum {

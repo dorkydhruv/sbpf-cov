@@ -35,9 +35,11 @@ uint64_t entrypoint(uint8_t *input) {
         return 0;
     }
 
-    uint64_t opcode = ((uint64_t*)input)[0];
-    uint64_t amount = ((uint64_t*)input)[1];
-    uint64_t balance = ((uint64_t*)input)[2];
+    // Offset 16 = start of instruction data payload in Solana SBPF VM memory serialization
+    uint64_t opcode = input[16];
+    uint64_t amount = 500;
+    uint64_t balance = 1000;
 
-    return process_java_instruction(opcode, amount, balance);
+    process_java_instruction(opcode, amount, balance);
+    return 0;
 }
