@@ -1,0 +1,17 @@
+[package]
+name = "sbpf-cov"
+version = "0.1.0"
+edition = "2024"
+description = "Standalone SBPF Instruction Trace & DWARF Source Coverage Tool"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+gimli = "0.31"
+object = "0.39"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[[bin]]
+name = "sbpf-cov"
+path = "src/bin/sbpf-cov.rs"
